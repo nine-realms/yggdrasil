@@ -64,6 +64,7 @@ export class IncrementalUpdateCoordinator {
   private readonly runtimeIndexOptions: IndexRepositoryRuntimeOptions;
   private state: ActiveRuntimeState;
   private updateQueue: Promise<void> = Promise.resolve();
+  private debounceTimer: NodeJS.Timeout | null = null;
 
   public constructor(options: IncrementalUpdateCoordinatorOptions) {
     this.indexOptions = options.indexOptions;
@@ -120,6 +121,12 @@ export class IncrementalUpdateCoordinator {
       debounceMs: this.runtimeDebounceMs
     });
 
+    const latestResult = await this.runReadyUpdates();
+    this.scheduleDebounceRun();
+    return latestResult;
+  }
+
+  private async runReadyUpdates(): Promise<IndexResult | null> {
     let latestResult: IndexResult | null = null;
     while (shouldRunIncrementalUpdate(this.state, this.nowMs())) {
       const startAttempt = beginIncrementalUpdate(this.state, this.nowMs());
@@ -151,8 +158,36 @@ export class IncrementalUpdateCoordinator {
         throw error;
       }
     }
-
+    if (this.state.changeQueue.length === 0 && this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
     return latestResult;
+  }
+
+  private scheduleDebounceRun(): void {
+    if (this.state.changeQueue.length === 0 || this.state.debounceUntilMs === null) {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+      return;
+    }
+
+    const delayMs = Math.max(0, this.state.debounceUntilMs - this.nowMs());
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      const queued = this.updateQueue.then(() => this.runReadyUpdates());
+      this.updateQueue = queued.then(
+        () => undefined,
+        () => undefined
+      );
+      void queued.catch(() => undefined);
+    }, delayMs);
   }
 }
 

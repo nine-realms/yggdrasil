@@ -115,6 +115,43 @@ describe("incremental integration", () => {
     expect(integration.coordinator.getState().lifecycle).toBe("running");
   });
 
+  it("flushes a single watch batch after runtime debounce elapses", async () => {
+    const repoDir = await mkdtemp(path.join(process.cwd(), ".yggdrasil-integration-"));
+    tempDirs.push(repoDir);
+
+    await mkdir(path.join(repoDir, "src"), { recursive: true });
+    const targetFile = path.join(repoDir, "src", "debounced.ts");
+    await writeFile(targetFile, "export function before() {}\n", "utf8");
+
+    await indexRepository({
+      repoPath: repoDir,
+      languages: [CodeLanguage.TypeScript]
+    });
+
+    const source = new FakeWatchSource();
+    const integration = createWatchDrivenIncrementalIntegration({
+      indexOptions: {
+        repoPath: repoDir,
+        languages: [CodeLanguage.TypeScript]
+      },
+      watchDebounceMs: 0,
+      runtimeDebounceMs: 80,
+      watchSource: source
+    });
+
+    await integration.watchService.start();
+    const previousSuccessfulUpdateAtMs = integration.coordinator.getStatusSnapshot().lastSuccessfulUpdateAtMs;
+    await writeFile(targetFile, "export function after() {}\n", "utf8");
+    await source.emit(targetFile, "change");
+    await waitForNextSuccessfulUpdate(integration.coordinator, previousSuccessfulUpdateAtMs);
+    await integration.watchService.stop();
+
+    const graph = await createGraphStore(repoDir).readGraph();
+    const symbolNames = graph.nodes.filter((node) => node.kind === NodeKind.Symbol).map((node) => node.name);
+    expect(symbolNames).toContain("after");
+    expect(symbolNames).not.toContain("before");
+  });
+
   it("removes deleted file contributions during watch-driven updates", async () => {
     const repoDir = await mkdtemp(path.join(process.cwd(), ".yggdrasil-integration-"));
     tempDirs.push(repoDir);
