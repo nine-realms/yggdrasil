@@ -13,6 +13,7 @@ import { runMcpStdioBridge } from "./mcp/stdio-server.js";
 import { querySymbolNeighborhood } from "./query/symbol-neighborhood.js";
 import { querySymbolReferences } from "./query/symbol-references.js";
 import { runGraphViewServer } from "./visualization/run-graph-view-server.js";
+import { createWatchDrivenIncrementalIntegration } from "./runtime/incremental-integration.js";
 
 const program = new Command();
 
@@ -105,6 +106,103 @@ program
         }
       });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    }
+  );
+
+program
+  .command("watch")
+  .requiredOption("--repo <path>", "Repository path to watch for incremental graph refresh")
+  .option("--store-dir <path>", "Directory for SQLite graph storage (defaults to <repo>/.yggdrasil)")
+  .option("--languages <csv>", "Comma-separated languages", "typescript,javascript,csharp")
+  .option("--resolution-mode <mode>", "Resolver mode: ranked|strict", "ranked")
+  .option(
+    "--resolver-language-scope <scope>",
+    "Resolver language scope: csharp-and-typescript|all-current-languages",
+    "csharp-and-typescript"
+  )
+  .option("--resolver-high-confidence <number>", "High-confidence auto-resolution threshold (0-1)", "0.85")
+  .option("--resolver-medium-confidence <number>", "Medium-confidence threshold (0-1)", "0.6")
+  .option("--resolver-top-candidates <number>", "Maximum ranked alternatives persisted in edge metadata", "3")
+  .option("--watch-debounce <number>", "Filesystem watch debounce window in milliseconds", "150")
+  .option("--runtime-debounce <number>", "Incremental update debounce window in milliseconds", "75")
+  .action(
+    async (options: {
+      repo: string;
+      languages: string;
+      storeDir?: string;
+      resolutionMode: string;
+      resolverLanguageScope: string;
+      resolverHighConfidence: string;
+      resolverMediumConfidence: string;
+      resolverTopCandidates: string;
+      watchDebounce: string;
+      runtimeDebounce: string;
+    }) => {
+      const integration = createWatchDrivenIncrementalIntegration({
+        indexOptions: {
+          repoPath: options.repo,
+          languages: parseLanguages(options.languages),
+          storeDir: options.storeDir,
+          resolverPolicy: {
+            mode: parseResolverMode(options.resolutionMode),
+            languageScope: parseResolverLanguageScope(options.resolverLanguageScope),
+            highConfidenceThreshold: Number(options.resolverHighConfidence),
+            mediumConfidenceThreshold: Number(options.resolverMediumConfidence),
+            maxAlternatives: Number(options.resolverTopCandidates)
+          }
+        },
+        watchDebounceMs: Number(options.watchDebounce),
+        runtimeDebounceMs: Number(options.runtimeDebounce),
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          process.stderr.write(`watch error: ${message}\n`);
+        }
+      });
+
+      await integration.watchService.start();
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            status: "watching",
+            repoPath: options.repo,
+            watchDebounceMs: Number(options.watchDebounce),
+            runtimeDebounceMs: Number(options.runtimeDebounce)
+          },
+          null,
+          2
+        )}\n`
+      );
+
+      await new Promise<void>((resolve) => {
+        let shuttingDown = false;
+        const keepAlive = setInterval(() => {}, 1_000);
+        const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
+          if (shuttingDown) {
+            return;
+          }
+          shuttingDown = true;
+          process.stdout.write(`${JSON.stringify({ status: "stopping", signal }, null, 2)}\n`);
+          try {
+            await integration.watchService.stop();
+            process.stdout.write(`${JSON.stringify({ status: "stopped", signal }, null, 2)}\n`);
+          } finally {
+            clearInterval(keepAlive);
+            process.removeListener("SIGINT", onSigint);
+            process.removeListener("SIGTERM", onSigterm);
+            resolve();
+          }
+        };
+
+        const onSigint = () => {
+          void shutdown("SIGINT");
+        };
+        const onSigterm = () => {
+          void shutdown("SIGTERM");
+        };
+
+        process.once("SIGINT", onSigint);
+        process.once("SIGTERM", onSigterm);
+      });
     }
   );
 

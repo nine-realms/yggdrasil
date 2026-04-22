@@ -5,7 +5,7 @@ import fg from "fast-glob";
 import { CodeLanguage, ScannedFile, normalizePath } from "../types/graph.js";
 
 const FILE_GLOB = "**/*.{ts,tsx,js,jsx,cs}";
-const DEFAULT_IGNORES = [
+export const DEFAULT_SCANNER_IGNORES = [
   "**/node_modules/**",
   "**/dist/**",
   "**/.git/**",
@@ -49,7 +49,7 @@ function isWithinRepository(repoPath: string, candidatePath: string): boolean {
   return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
-function isIgnoredRelativePath(value: string): boolean {
+export function isIgnoredRelativePath(value: string): boolean {
   const normalized = normalizePath(value).replace(/^\.\//, "");
   const firstSegment = normalized.split("/")[0];
 
@@ -63,27 +63,38 @@ function isIgnoredRelativePath(value: string): boolean {
   );
 }
 
-export function normalizeChangedFiles(repoPath: string, changedFiles: string[]): string[] {
+export function normalizeChangedFilePath(repoPath: string, filePath: string): string | null {
   const absoluteRepoPath = path.resolve(repoPath);
+  const trimmed = filePath.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const normalizedInput = normalizePath(trimmed);
+  const platformPath = normalizedInput.split("/").join(path.sep);
+  const absoluteCandidate = path.isAbsolute(platformPath)
+    ? path.resolve(platformPath)
+    : path.resolve(absoluteRepoPath, platformPath);
+  if (!isWithinRepository(absoluteRepoPath, absoluteCandidate)) {
+    return null;
+  }
+
+  const relativePath = normalizePath(path.relative(absoluteRepoPath, absoluteCandidate));
+  if (isIgnoredRelativePath(relativePath)) {
+    return null;
+  }
+
+  return relativePath;
+}
+
+export function normalizeChangedFiles(repoPath: string, changedFiles: string[]): string[] {
   const normalized = new Set<string>();
 
   for (const value of changedFiles) {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      continue;
+    const normalizedPath = normalizeChangedFilePath(repoPath, value);
+    if (normalizedPath) {
+      normalized.add(normalizedPath);
     }
-
-    const absoluteCandidate = path.resolve(absoluteRepoPath, trimmed);
-    if (!isWithinRepository(absoluteRepoPath, absoluteCandidate)) {
-      continue;
-    }
-
-    const relativePath = normalizePath(path.relative(absoluteRepoPath, absoluteCandidate));
-    if (isIgnoredRelativePath(relativePath)) {
-      continue;
-    }
-
-    normalized.add(relativePath);
   }
 
   return Array.from(normalized);
@@ -102,7 +113,7 @@ export async function scanRepository(options: ScanOptions): Promise<ScannedFile[
           cwd: absoluteRepoPath,
           absolute: true,
           onlyFiles: true,
-          ignore: DEFAULT_IGNORES,
+          ignore: DEFAULT_SCANNER_IGNORES,
           followSymbolicLinks: false
         });
 

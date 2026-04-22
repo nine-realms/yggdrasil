@@ -43,6 +43,15 @@ npx yggdrasil update --repo C:\path\to\repo --changed src\a.ts,src\b.cs
 Changed paths are scoped to the target repo root (absolute paths inside the repo are normalized; outside paths are ignored).
 
 
+Start watch-driven incremental graph refresh:
+
+```bash
+npx yggdrasil watch --repo C:\path\to\repo --languages typescript,javascript,csharp --watch-debounce 150 --runtime-debounce 75
+```
+
+Use Ctrl+C (SIGINT) or SIGTERM to stop the watch service gracefully.
+
+
 Run the bridge-backed visualization server:
 
 ```bash
@@ -62,4 +71,4 @@ npx yggdrasil mcp-stdio
 The stdio bridge supports MCP framed stdio and legacy JSON-per-line requests.
 
 MCP tool exposure is intentionally read-only to avoid expensive graph rebuilds during agent query flows.
-Use CLI commands (`index`, `update`, `visualize`) for graph mutation/render operations.
+Use CLI commands (`index`, `update`, `watch`, `visualize`) for graph mutation/render operations.
