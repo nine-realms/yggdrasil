@@ -1,0 +1,39 @@
+{
+  "name": "yggdrasil",
+  "version": "1.0.0",
+  "description": "Knowledge-graph codebase indexer for AI agents.",
+  "type": "module",
+  "main": "dist/src/cli.js",
+  "bin": {
+    "yggdrasil": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsx src/cli.ts"
+  },
+  "keywords": [
+    "knowledge-graph",
+    "code-intelligence",
+    "mcp",
+    "sqlite",
+    "zero-install"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.1",
+    "fast-glob": "^3.3.3",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-c-sharp": "^0.23.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
